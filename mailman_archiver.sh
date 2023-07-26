@@ -1,6 +1,14 @@
 #!/bin/bash
-#Made by Vu3u @github.com/Vudubond/mailman_archiver
-#It truncates the mailman archives from January 1 of the current year until today on a cPanel server
+#Made by Orlando @Clausweb SRL
+#Face truncate la arhivele de mailman de la 1 ianuarie anul curent pana la data de azi
+
+# Check if the file exists
+if [ -f "/usr/local/cpanel/3rdparty/mailman/scripts/prune_arch" ]; then
+    echo "File /usr/local/cpanel/3rdparty/mailman/scripts/prune_arch found."
+else
+    echo "Error: File /usr/local/cpanel/3rdparty/mailman/scripts/prune_arch not found."
+    exit 1
+fi
 
 # Get today's date in seconds since Epoch (January 1, 2023)
 today=$(date +%s)
@@ -18,4 +26,4 @@ echo "$days"
 #Debug
 #for i in `ls  /usr/local/cpanel/3rdparty/mailman/archives/private|grep -v ".mbox"|grep -v mailman`; do echo $i $days;done
 
-for i in `ls  /usr/local/cpanel/3rdparty/mailman/archives/private|grep -v ".mbox"|grep -v mailman`; do /usr/local/cpanel/3rdparty/mailman/scripts/prune_arch -l $i -d $days;done
+for i in `ls  /usr/local/cpanel/3rdparty/mailman/archives/private|grep -v ".mbox"|grep -v mailman`; do sudo -u mailman /usr/local/cpanel/3rdparty/mailman/scripts/prune_arch -l $i -d $days;done
