@@ -6,7 +6,7 @@
 if [ -f "/usr/local/cpanel/3rdparty/mailman/scripts/prune_arch" ]; then
     echo "File /usr/local/cpanel/3rdparty/mailman/scripts/prune_arch found."
 else
-    echo -e "Error: File /usr/local/cpanel/3rdparty/mailman/scripts/prune_arch not found.\nDownload script using:\nsudo -u mailman wget -Nnv https://raw.githubusercontent.com/Vudubond/mailman_archiver/main/prune_arch -P /usr/local/cpanel/3rdparty/mailman/scripts/;chmod 0755 /usr/local/cpanel/3rdparty/mailman/scripts/prune_arch;"
+    echo -e "\e[31mError: File /usr/local/cpanel/3rdparty/mailman/scripts/prune_arch not found.\e[0m\nDownload script using:\nsudo -u mailman wget -Nnv https://raw.githubusercontent.com/Vudubond/mailman_archiver/main/prune_arch -P /usr/local/cpanel/3rdparty/mailman/scripts/;chmod 0755 /usr/local/cpanel/3rdparty/mailman/scripts/prune_arch;"
     exit 1
 fi
 
