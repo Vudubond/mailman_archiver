@@ -1,0 +1,248 @@
+#! /usr/local/cpanel/3rdparty/bin/python2
+#
+# Copyright (C) 2011-2020 by the Free Software Foundation, Inc.
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301,
+# USA.
+
+"""Prune older messages from the archives of one or more lists.
+
+Usage: %(PROGRAM)s [options]
+
+Options:
+
+    -l <listname>/--list=<listname>
+        Process the archive of the <listname> list.  May be repeated for
+        multiple lists.  The default is to do all lists.
+
+    -d <days>/--days=<days>
+        Remove messages older than <days>. Default is 365.  This is
+        based on the message's Date: header.  Messages with missing or
+        unparseable Date: header will be removed.
+
+    -b/--backup
+        Keeps the original <listname>.mbox as <listname>.mbox.bak.  If the
+        list's scrub_nondigest setting is Yes, the original attachments/
+        directory will be saved as attachments.bak/.
+
+    -p/--preserve
+        Preserves the pruned messages in <listname>.mbox.pruned.  If this
+        file exists, it will be appended to.  Unparseable messages and
+        messages without a parseable Date: header will be removed and not
+        preserved.  If the list's scrub_nondigest setting is Yes, the pruned
+        attachments/yyyymmdd/ directories will be saved in an
+        attachments.pruned/ directory.
+
+    -n/--nobuild
+        Skips running bin/arch --wipe after pruning the <listname>.mbox
+        file.
+
+    -v/--verbose
+        Prints some progress messages to stderr.
+
+    -h/--help
+        Print this message and exit.
+
+This script must run from Mailman's bin/ directory.
+"""
+
+import os
+import re
+import sys
+import time
+import getopt
+import socket
+
+import paths
+
+from datetime import datetime
+# Import this after paths so we get Mailman's copy of the email package
+from email.Utils import parsedate_tz, mktime_tz
+
+from Mailman import mm_cfg
+from Mailman import Errors
+from Mailman import Utils
+from Mailman import Mailbox
+from Mailman import MailList
+from Mailman import i18n
+
+PROGRAM = sys.argv[0]
+
+_ = i18n._
+i18n.set_language(mm_cfg.DEFAULT_SERVER_LANGUAGE)
+
+
+
+def usage(code, msg=''):
+    if code:
+        fd = sys.stderr
+    else:
+        fd = sys.stdout
+    print >> fd, _(__doc__)
+    if msg:
+        print >> fd, msg
+    sys.exit(code)
+
+
+
+def main():
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], 'l:d:bpnvh',
+                             ['list=', 'days=', 'backup', 'preserve',
+                              'nobuild', 'verbose', 'help'])
+    except getopt.error, msg:
+        usage(1, msg)
+
+    lists = []
+    days = None
+    backup = preserve = nobuild = verbose = False
+    for opt, arg in opts:
+        if opt in ('-h', '--help'):
+            usage(0)
+        if opt in ('-l', '--list'):
+            lists.append(arg.lower())
+        if opt in ('-d', '--days'):
+            if days:
+                usage(1, _('-d/--days may be given at most once.'))
+            days = int(arg)
+        if opt in ('-b', '--backup'):
+            backup = True
+        if opt in ('-p', '--preserve'):
+            preserve = True
+        if opt in ('-n', '--nobuild'):
+            nobuild = True
+        if opt in ('-v', '--verbose'):
+            verbose = True
+
+    if args:
+        usage(1)
+
+    if not lists:
+        lists = Utils.list_names()
+    if not days:
+        days = 365
+    cutoff = time.time() - days * 24 * 3600
+    for name in lists:
+        # Lock the list while manipulating the .mbox
+        try:
+            mlist = MailList.MailList(name)
+        except Errors.MMUnknownListError:
+            print >> sys.stderr, _('%(name)s: Unknown List')
+            continue
+        omask = os.umask(2)
+        try:
+            mbname = os.path.join(mlist.archive_dir() + '.mbox',
+                                  name + '.mbox')
+            try:
+                mboxf = open(mbname)
+            except IOError, e:
+                print >> sys.stderr, _('Skipping %(mbname)s\n    %(e)s')
+                continue
+            mbox = Mailbox.Mailbox(mboxf)
+            if verbose:
+                print >> sys.stderr, _('Processing %(name)s mailbox')
+            tmpname = mbname + '.tmp.%s.%d' % (socket.gethostname(),
+                                               os.getpid())
+            tmpf = open(tmpname, 'w')
+            if preserve:
+                pmbf = open(mbname + '.pruned', 'a')
+            msgs = dropped = skipped = 0
+            for msg in mbox:
+                msgs += 1
+                if msg == '':
+                    print >> sys.stderr, _(
+                            'Skipping unparseable message #%(msgs)d')
+                    skipped += 1
+                    continue
+                if not msg['date']:
+                    print >> sys.stderr, _(
+                            'Skipping message #%(msgs)d; no Date: header')
+                    skipped += 1
+                    continue
+                try:
+                    mdate = mktime_tz(parsedate_tz(msg['date']))
+                except (TypeError, ValueError):
+                    print >> sys.stderr, _(
+                            'Skipping message #%(msgs)d; bad Date: header')
+                    skipped += 1
+                    continue
+                if mdate and mdate < cutoff:
+                    dropped += 1
+                    if preserve:
+                        pmbf.write(msg.as_string(unixfrom=True))
+                    continue
+                tmpf.write(msg.as_string(unixfrom=True))
+            mboxf.close()
+            tmpf.flush()
+            tmpf.close()
+            if preserve:
+                pmbf.flush()
+                pmbf.close()
+            if backup:
+                os.rename(mbname, mbname + '.bak')
+            os.rename(tmpname, mbname)
+        finally:
+            os.umask(omask)
+            mlist.Unlock()
+        if verbose:
+            print >> sys.stderr, _(
+'%(name)s mbox had %(msgs)d messages; skipped %(skipped)d and dropped %(dropped)d messages.'
+                                  )
+        if nobuild:
+            return
+        if verbose:
+            print >> sys.stderr, _('Rebuilding %(name)s archives.')
+        cmd = os.path.join(mm_cfg.BIN_DIR, 'arch') + ' --wipe ' + name
+        os.system(cmd)
+        if verbose:
+            print >> sys.stderr, _(
+                                'Finished rebuilding %(name)s archives.')
+        if not mlist.scrub_nondigest:
+            return
+        # If mlist.scrub_nondigest is True, we need to prune and perhaps
+        # backup/preserve attachments.
+        attach_cutoff = datetime.fromtimestamp(cutoff).strftime('%Y%m%d')
+        attachdir = os.path.join(mlist.archive_dir(), 'attachments')
+        attachbak = os.path.join(mlist.archive_dir(), 'attachments.bak')
+        attachpruned = os.path.join(mlist.archive_dir(), 'attachments.pruned')
+        if verbose:
+            print >> sys.stderr, _('Pruning %(name)s attachments.')
+        if backup or preserve:
+            omask = os.umask(2)
+        if backup:
+            os.system('rm -rf ' + attachbak)
+            os. system('cp -a ' + attachdir + ' ' + attachbak)
+        for subdir in os.listdir(attachdir):
+            if (not re.match('^\d{8}$', subdir) or not
+                    os.path.isdir(os.path.join(attachdir, subdir))):
+                print >> sys.stderr, _('Skipping %(subdir)s.')
+                continue
+            if subdir >= attach_cutoff:
+                continue
+            if preserve:
+                try:
+                    os.mkdir(attachpruned)
+                except OSError:
+                    pass
+                os.system('rm -rf ' + os.path.join(attachpruned, subdir))
+                os.system('cp -a ' + os.path.join(attachdir, subdir) + ' ' +
+                          os.path.join(attachpruned, subdir))
+            os.system('rm -rf ' + os.path.join(attachdir, subdir))
+        os.umask(omask)
+
+
+
+if __name__ == '__main__':
+    main()
