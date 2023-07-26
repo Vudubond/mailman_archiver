@@ -6,7 +6,7 @@
 if [ -f "/usr/local/cpanel/3rdparty/mailman/scripts/prune_arch" ]; then
     echo "File /usr/local/cpanel/3rdparty/mailman/scripts/prune_arch found."
 else
-    echo "Error: File /usr/local/cpanel/3rdparty/mailman/scripts/prune_arch not found."
+    echo -e "Error: File /usr/local/cpanel/3rdparty/mailman/scripts/prune_arch not found.\nDownload script using:\nsudo -u mailman wget -Nnv https://raw.githubusercontent.com/Vudubond/mailman_archiver/main/prune_arch -P /usr/local/cpanel/3rdparty/mailman/scripts/;chmod 0755 /usr/local/cpanel/3rdparty/mailman/scripts/prune_arch;"
     exit 1
 fi
 
@@ -21,7 +21,7 @@ days=$(( (today - january_01) / 86400 )) # 86400 seconds in a day
 
 #echo "Number of days from January 01 till today: $days"
 
-echo "$days"
+#echo "$days"
 
 #Debug
 #for i in `ls  /usr/local/cpanel/3rdparty/mailman/archives/private|grep -v ".mbox"|grep -v mailman`; do echo $i $days;done
